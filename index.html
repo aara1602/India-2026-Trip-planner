@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>India Trip 2026 — Arakkal Family</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!-- Firebase SDK (script tag / CDN — no npm needed) -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  // ── YOUR FIREBASE CONFIG ──
+  const firebaseConfig = {
+    apiKey: "AIzaSyCq6_3fzAC97it365rF6QEz9bt5nK5WDIg",
+    authDomain: "india-2026.firebaseapp.com",
+    databaseURL: "https://india-2026-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "india-2026",
+    storageBucket: "india-2026.firebasestorage.app",
+    messagingSenderId: "902502143174",
+    appId: "1:902502143174:web:838f8f082786e53f39f3c7"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  // ── STATE ──
+  const plans = {};
+  let currentMonth = 3; // 0-indexed: April
+  let selectedKey = null;
+  let selectedTag = null;
+  let isCalView = true;
+  let dbReady = false;
+
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const YEAR = 2026;
+  const MIN_MONTH = 3, MAX_MONTH = 4;
+
+  // ── FIREBASE SYNC ──
+  // Listen to the entire trip's plans in real-time
+  onValue(ref(db, 'trips/arakkal2026/plans'), (snapshot) => {
+    // Clear and repopulate local plans from DB
+    Object.keys(plans).forEach(k => delete plans[k]);
+    if (snapshot.exists()) {
+      Object.assign(plans, snapshot.val());
+    }
+    dbReady = true;
+    hideLoader();
+    renderCal();
+    if (!isCalView) renderList();
+    if (selectedKey) repopulateEditor();
+  }, (error) => {
+    console.error('Firebase error:', error);
+    showToast('⚠️ Could not connect to database');
+    hideLoader();
+  });
+
+  function savePlan(key, data) {
+    set(ref(db, `trips/arakkal2026/plans/${key}`), data)
+      .then(() => showToast('Saved ✓'))
+      .catch(() => showToast('⚠️ Save failed — check connection'));
+  }
+
+  function deletePlan(key) {
+    remove(ref(db, `trips/arakkal2026/plans/${key}`))
+      .then(() => showToast('Cleared'))
+      .catch(() => showToast('⚠️ Failed — check connection'));
+  }
+
+  // ── DATE HELPERS ──
+  function dateKey(y, m, d) { return `${y}_${m}_${d}`; }
+  function isInStay(y, m, d) {
+    const date = new Date(y, m, d);
+    return date >= new Date(2026, 3, 23) && date <= new Date(2026, 4, 27);
+  }
+  function isArrival(y, m, d) { return y===2026 && m===3 && d===23; }
+  function isDeparture(y, m, d) { return y===2026 && m===4 && d===27; }
+
+  // ── RENDER CALENDAR ──
+  function renderCal() {
+    document.getElementById('monthTitle').textContent = `${MONTHS[currentMonth]} ${YEAR}`;
+    document.getElementById('prevBtn').disabled = currentMonth <= MIN_MONTH;
+    document.getElementById('nextBtn').disabled = currentMonth >= MAX_MONTH;
+
+    const grid = document.getElementById('calGrid');
+    grid.innerHTML = '';
+
+    const firstDay = new Date(YEAR, currentMonth, 1).getDay();
+    const daysInMonth = new Date(YEAR, currentMonth + 1, 0).getDate();
+    const prevMonthDays = new Date(YEAR, currentMonth, 0).getDate();
+
+    for (let i = firstDay - 1; i >= 0; i--) {
+      const cell = document.createElement('div');
+      cell.className = 'cal-day other-month';
+      cell.innerHTML = `<div class="day-num">${prevMonthDays - i}</div>`;
+      grid.appendChild(cell);
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const key = dateKey(YEAR, currentMonth, d);
+      const cell = document.createElement('div');
+      const stay = isInStay(YEAR, currentMonth, d);
+      const arrive = isArrival(YEAR, currentMonth, d);
+      const depart = isDeparture(YEAR, currentMonth, d);
+      const hasPlan = plans[key];
+
+      let cls = 'cal-day';
+      if (arrive || depart) cls += ' event-flight';
+      else if (stay) cls += ' in-stay';
+      if (hasPlan) cls += ' has-note';
+      if (key === selectedKey) cls += ' selected';
+      cell.className = cls;
+
+      let tagsHtml = '';
+      if (arrive) tagsHtml += '<div class="day-tag flight">✈ Arrive</div>';
+      if (depart) tagsHtml += '<div class="day-tag flight">✈ Depart</div>';
+      if (hasPlan?.loc) tagsHtml += `<div class="day-tag city">${hasPlan.loc.split(',')[0]}</div>`;
+      if (hasPlan?.tag) tagsHtml += `<div class="day-tag tag-pill">${hasPlan.tag}</div>`;
+
+      cell.innerHTML = `<div class="day-num">${d}</div><div class="day-tags">${tagsHtml}</div>`;
+
+      if (stay || arrive || depart) {
+        cell.addEventListener('click', () => selectDay(YEAR, currentMonth, d));
+      }
+      grid.appendChild(cell);
+    }
+
+    const total = firstDay + daysInMonth;
+    const trailing = total % 7 === 0 ? 0 : 7 - (total % 7);
+    for (let i = 1; i <= trailing; i++) {
+      const cell = document.createElement('div');
+      cell.className = 'cal-day other-month';
+      cell.innerHTML = `<div class="day-num">${i}</div>`;
+      grid.appendChild(cell);
+    }
+  }
+
+  // ── RENDER LIST ──
+  function renderList() {
+    const container = document.getElementById('listContent');
+    container.innerHTML = '';
+    const ranges = currentMonth === 3
+      ? [{ m: 3, start: 23, end: 30 }]
+      : [{ m: 4, start: 1, end: 27 }];
+
+    ranges.forEach(({ m, start, end }) => {
+      for (let d = start; d <= end; d++) {
+        const key = dateKey(2026, m, d);
+        const plan = plans[key];
+        const date = new Date(2026, m, d);
+        const wday = WEEKDAYS[date.getDay()];
+        const isArr = isArrival(2026, m, d);
+        const isDep = isDeparture(2026, m, d);
+
+        const row = document.createElement('div');
+        row.className = 'list-row';
+        let badge = '';
+        if (isArr) badge += '<span class="list-badge flight">✈ Arrive COK</span> ';
+        if (isDep) badge += '<span class="list-badge depart">✈ Depart BOM</span> ';
+        if (plan?.loc) badge += `<span class="list-badge city">${plan.loc}</span> `;
+        if (plan?.tag) badge += `<span class="list-badge tag">${plan.tag}</span> `;
+
+        row.innerHTML = `
+          <div class="list-date-col">
+            <div class="list-day-num">${d}</div>
+            <div class="list-wday">${wday.slice(0,3)}</div>
+          </div>
+          <div class="list-content">
+            <div class="list-badges">${badge}</div>
+            ${plan?.note ? `<div class="list-note">"${plan.note}"</div>` : '<div class="list-empty">No plans</div>'}
+          </div>
+        `;
+        row.addEventListener('click', () => selectDay(2026, m, d));
+        container.appendChild(row);
+      }
+    });
+  }
+
+  // ── SELECT DAY ──
+  function selectDay(y, m, d) {
+    selectedKey = dateKey(y, m, d);
+    const date = new Date(y, m, d);
+
+    document.getElementById('selDay').textContent = d;
+    document.getElementById('selMonth').textContent = `${MONTHS[m]} ${y}`;
+    document.getElementById('selWeekday').textContent = WEEKDAYS[date.getDay()].toUpperCase();
+
+    const panel = document.getElementById('sidePanel');
+    panel.classList.add('open');
+    document.getElementById('overlay').classList.add('show');
+
+    repopulateEditor();
+    renderCal();
+    if (!isCalView) renderList();
+  }
+
+  function repopulateEditor() {
+    const plan = plans[selectedKey] || {};
+    document.getElementById('locInput').value = plan.loc || '';
+    document.getElementById('noteInput').value = plan.note || '';
+    selectedTag = plan.tag || null;
+    document.querySelectorAll('.tag-option').forEach(el => {
+      el.classList.toggle('selected', el.dataset.tag === selectedTag);
+    });
+  }
+
+  function closePanel() {
+    document.getElementById('sidePanel').classList.remove('open');
+    document.getElementById('overlay').classList.remove('show');
+    // Deselect after close on mobile
+    if (window.innerWidth <= 768) {
+      selectedKey = null;
+      renderCal();
+    }
+  }
+
+  // ── SAVE / CLEAR ──
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('saveBtn').addEventListener('click', () => {
+      if (!selectedKey) return;
+      const loc = document.getElementById('locInput').value.trim();
+      const note = document.getElementById('noteInput').value.trim();
+      if (loc || note || selectedTag) {
+        savePlan(selectedKey, { loc, note, tag: selectedTag || null });
+      }
+    });
+
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      if (!selectedKey) return;
+      deletePlan(selectedKey);
+      document.getElementById('locInput').value = '';
+      document.getElementById('noteInput').value = '';
+      selectedTag = null;
+      document.querySelectorAll('.tag-option').forEach(el => el.classList.remove('selected'));
+    });
+
+    document.getElementById('closePanel').addEventListener('click', closePanel);
+    document.getElementById('overlay').addEventListener('click', closePanel);
+
+    // Tag options
+    document.querySelectorAll('.tag-option').forEach(el => {
+      el.addEventListener('click', () => {
+        selectedTag = selectedTag === el.dataset.tag ? null : el.dataset.tag;
+        document.querySelectorAll('.tag-option').forEach(o => o.classList.remove('selected'));
+        if (selectedTag) el.classList.add('selected');
+      });
+    });
+
+    // Navigation
+    document.getElementById('prevBtn').addEventListener('click', () => {
+      if (currentMonth > MIN_MONTH) { currentMonth--; renderCal(); if (!isCalView) renderList(); }
+    });
+    document.getElementById('nextBtn').addEventListener('click', () => {
+      if (currentMonth < MAX_MONTH) { currentMonth++; renderCal(); if (!isCalView) renderList(); }
+    });
+
+    // View toggle
+    document.getElementById('calViewBtn').addEventListener('click', () => {
+      isCalView = true;
+      document.getElementById('calView').style.display = 'block';
+      document.getElementById('listView').style.display = 'none';
+      document.getElementById('calViewBtn').classList.add('active');
+      document.getElementById('listViewBtn').classList.remove('active');
+      renderCal();
+    });
+    document.getElementById('listViewBtn').addEventListener('click', () => {
+      isCalView = false;
+      document.getElementById('calView').style.display = 'none';
+      document.getElementById('listView').style.display = 'block';
+      document.getElementById('listViewBtn').classList.add('active');
+      document.getElementById('calViewBtn').classList.remove('active');
+      renderList();
+    });
+
+    // Export
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      let out = '🇮🇳 INDIA TRIP 2026 — ARAKKAL FAMILY\n=====================================\n';
+      out += 'Arrive: COK 23 Apr 2026 at 23:20 IST\nDepart: BOM 27 May 2026 at 23:25 IST\n\nPLANS:\n';
+      const keys = Object.keys(plans).sort();
+      if (keys.length === 0) { out += '(No plans yet)'; }
+      else {
+        keys.forEach(k => {
+          const [y,m,d] = k.split('_').map(Number);
+          const date = new Date(y, m, d);
+          const p = plans[k];
+          out += `\n${date.toDateString()}`;
+          if (p.loc) out += ` — ${p.loc}`;
+          if (p.tag) out += ` [${p.tag}]`;
+          if (p.note) out += `\n  "${p.note}"`;
+        });
+      }
+      navigator.clipboard.writeText(out).then(() => showToast('Copied to clipboard 📋'));
+    });
+  });
+
+  function hideLoader() {
+    const l = document.getElementById('loader');
+    if (l) l.style.display = 'none';
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2500);
+  }
+</script>
+
+<style>
+  :root {
+    --saffron: #E8882A;
+    --saffron-light: #F5A84E;
+    --navy: #1A2744;
+    --navy-mid: #243459;
+    --teal: #0D7377;
+    --teal-light: #14A8AD;
+    --cream: #FDF6EC;
+    --cream-dark: #F0E6D0;
+    --gold: #D4A017;
+    --deep-red: #C0392B;
+    --text-dark: #1A1A2E;
+    --text-mid: #3D3D5C;
+    --text-light: #7A7A9A;
+    --shadow: 0 4px 24px rgba(26,39,68,0.12);
+    --shadow-lg: 0 8px 40px rgba(26,39,68,0.22);
+    --panel-width: 320px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--cream);
+    color: var(--text-dark);
+    overflow-x: hidden;
+  }
+
+  /* LOADER */
+  #loader {
+    position: fixed; inset: 0; background: var(--navy);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 9999; color: white; gap: 16px;
+  }
+  .loader-spinner {
+    width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.2);
+    border-top-color: var(--saffron); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loader-text { font-size: 14px; color: rgba(255,255,255,0.6); }
+
+  /* HERO */
+  .hero {
+    background: var(--navy);
+    color: white;
+    padding: 24px 20px 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute; top: -40px; right: -40px;
+    width: 200px; height: 200px;
+    background: radial-gradient(circle, rgba(232,136,42,0.2) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .hero-eyebrow {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--saffron-light); margin-bottom: 8px;
+  }
+  .hero h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 24px; font-weight: 700; line-height: 1.2; margin-bottom: 4px;
+  }
+  .hero-meta { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .hero-pill {
+    background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 20px; padding: 4px 10px; font-size: 11px; color: rgba(255,255,255,0.7);
+  }
+  .hero-pill strong { color: var(--saffron-light); }
+
+  /* TIMELINE */
+  .timeline-section { background: white; padding: 20px; border-bottom: 1px solid var(--cream-dark); overflow-x: auto; }
+  .section-label {
+    font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 3px;
+    text-transform: uppercase; color: var(--text-light); margin-bottom: 16px;
+  }
+  .timeline { display: flex; align-items: flex-start; min-width: 560px; }
+  .tl-node { display: flex; flex-direction: column; align-items: center; min-width: 110px; }
+  .tl-dot {
+    width: 12px; height: 12px; border-radius: 50%; border: 3px solid var(--navy);
+    background: white; position: relative; z-index: 2; flex-shrink: 0;
+  }
+  .tl-dot.depart { background: var(--saffron); border-color: var(--saffron); }
+  .tl-dot.arrive { background: var(--teal); border-color: var(--teal); }
+  .tl-connector { flex: 1; height: 3px; margin-top: 5px; border-radius: 4px; position: relative; }
+  .tl-connector.out { background: linear-gradient(90deg, var(--saffron), var(--teal)); }
+  .tl-connector.stay { background: linear-gradient(90deg, rgba(13,115,119,0.25), rgba(212,160,23,0.4), rgba(13,115,119,0.25)); }
+  .tl-connector.in { background: linear-gradient(90deg, var(--teal), var(--navy)); }
+  .tl-conn-label {
+    position: absolute; top: -18px; left: 50%; transform: translateX(-50%);
+    font-family: 'DM Mono', monospace; font-size: 9px; color: var(--text-light);
+    background: white; padding: 0 4px; white-space: nowrap;
+  }
+  .tl-info { text-align: center; margin-top: 8px; }
+  .tl-code { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 2px; color: var(--text-light); }
+  .tl-city { font-family: 'Playfair Display', serif; font-size: 13px; font-weight: 600; color: var(--navy); }
+  .tl-time { font-family: 'DM Mono', monospace; font-size: 18px; font-weight: 600; color: var(--text-dark); }
+  .tl-date { font-size: 10px; color: var(--text-mid); margin-top: 1px; }
+  .tl-flight { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--saffron); font-weight: 500; margin-top: 2px; }
+  .tl-tz { font-size: 9px; color: var(--text-light); background: var(--cream); border-radius: 3px; padding: 1px 4px; margin-top: 2px; display: inline-block; }
+
+  /* STAY STRIP */
+  .stay-strip {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%);
+    color: white; padding: 12px 20px;
+    display: flex; align-items: center; gap: 20px; flex-wrap: wrap; overflow-x: auto;
+  }
+  .stay-stat { text-align: center; flex-shrink: 0; }
+  .stay-stat-val { font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 700; color: var(--saffron-light); line-height: 1; }
+  .stay-stat-lbl { font-size: 10px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 1px; }
+  .stay-divider { width: 1px; height: 32px; background: rgba(255,255,255,0.15); flex-shrink: 0; }
+
+  /* CALENDAR AREA */
+  .cal-area { padding: 20px 16px; }
+  .cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 8px; }
+  .cal-month-nav { display: flex; align-items: center; gap: 10px; }
+  .nav-btn {
+    background: none; border: 1.5px solid var(--cream-dark); border-radius: 8px;
+    width: 34px; height: 34px; cursor: pointer; font-size: 16px; color: var(--text-mid);
+    display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+  }
+  .nav-btn:hover { background: var(--navy); color: white; border-color: var(--navy); }
+  .nav-btn:disabled { opacity: 0.3; cursor: default; }
+  .cal-month-title { font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 600; color: var(--navy); min-width: 140px; text-align: center; }
+  .view-toggle { display: flex; gap: 3px; background: var(--cream-dark); border-radius: 8px; padding: 3px; }
+  .view-btn {
+    padding: 5px 10px; border-radius: 5px; border: none; background: none;
+    font-size: 11px; font-family: 'DM Sans', sans-serif; cursor: pointer;
+    color: var(--text-mid); font-weight: 500; transition: all 0.15s;
+  }
+  .view-btn.active { background: white; color: var(--navy); box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+
+  .cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 4px; }
+  .cal-wd {
+    text-align: center; font-family: 'DM Mono', monospace; font-size: 9px;
+    letter-spacing: 1px; color: var(--text-light); text-transform: uppercase; padding: 3px 0;
+  }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .cal-day {
+    aspect-ratio: 1; border-radius: 10px; padding: 5px; cursor: pointer;
+    position: relative; border: 1.5px solid transparent; transition: all 0.15s;
+    display: flex; flex-direction: column; background: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .cal-day:active { transform: scale(0.96); }
+  .cal-day.other-month { background: var(--cream); opacity: 0.4; cursor: default; pointer-events: none; }
+  .cal-day.in-stay { background: #EBF7F7; border-color: rgba(13,115,119,0.2); }
+  .cal-day.in-stay:hover { border-color: var(--teal); transform: translateY(-1px); }
+  .cal-day.event-flight { background: linear-gradient(135deg, #FFF0E0, #FFE5C4); border-color: var(--saffron); }
+  .cal-day.has-note { border-color: var(--gold) !important; }
+  .cal-day.has-note::after {
+    content: ''; position: absolute; bottom: 4px; right: 4px;
+    width: 5px; height: 5px; border-radius: 50%; background: var(--gold);
+  }
+  .cal-day.selected { border-color: var(--navy) !important; box-shadow: 0 0 0 2px rgba(26,39,68,0.25) !important; }
+  .day-num { font-size: 12px; font-weight: 600; color: var(--text-dark); line-height: 1; }
+  .day-tags { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 2px; overflow: hidden; flex: 1; }
+  .day-tag {
+    font-size: 7px; padding: 1px 3px; border-radius: 3px;
+    font-weight: 700; letter-spacing: 0.2px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  }
+  .day-tag.flight { background: var(--saffron); color: white; }
+  .day-tag.city { background: var(--teal); color: white; }
+  .day-tag.tag-pill { background: var(--gold); color: white; }
+
+  /* LIST VIEW */
+  #listView { display: none; }
+  .list-row {
+    display: flex; gap: 12px; padding: 10px 8px; border-bottom: 1px solid var(--cream-dark);
+    cursor: pointer; border-radius: 8px; transition: background 0.1s;
+  }
+  .list-row:hover { background: var(--cream); }
+  .list-date-col { min-width: 44px; text-align: center; }
+  .list-day-num { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 700; color: var(--navy); line-height: 1; }
+  .list-wday { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-light); }
+  .list-content { flex: 1; }
+  .list-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+  .list-badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 600; }
+  .list-badge.flight { background: var(--saffron); color: white; }
+  .list-badge.depart { background: var(--navy); color: white; }
+  .list-badge.city { background: var(--teal); color: white; }
+  .list-badge.tag { background: var(--gold); color: white; }
+  .list-note { font-size: 12px; color: var(--text-mid); font-style: italic; }
+  .list-empty { font-size: 11px; color: var(--text-light); }
+
+  /* OVERLAY */
+  #overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 200;
+    opacity: 0; transition: opacity 0.2s;
+  }
+  #overlay.show { display: block; opacity: 1; }
+
+  /* SIDE PANEL (slide-up on mobile, slide-in on desktop) */
+  #sidePanel {
+    position: fixed; background: white; z-index: 300;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto;
+  }
+  @media (max-width: 768px) {
+    #sidePanel {
+      bottom: 0; left: 0; right: 0; top: auto;
+      max-height: 88vh; border-radius: 20px 20px 0 0;
+      padding: 20px 20px 40px;
+      transform: translateY(100%);
+      box-shadow: 0 -8px 40px rgba(0,0,0,0.2);
+    }
+    #sidePanel.open { transform: translateY(0); }
+  }
+  @media (min-width: 769px) {
+    #sidePanel {
+      right: 0; top: 0; bottom: 0; width: var(--panel-width);
+      padding: 28px 24px;
+      transform: translateX(100%);
+      box-shadow: -4px 0 40px rgba(0,0,0,0.12);
+    }
+    #sidePanel.open { transform: translateX(0); }
+  }
+  .panel-handle {
+    width: 36px; height: 4px; background: var(--cream-dark); border-radius: 2px;
+    margin: 0 auto 16px; display: block;
+  }
+  .panel-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .panel-title { font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 600; color: var(--navy); }
+  .close-btn {
+    background: var(--cream); border: none; border-radius: 50%; width: 32px; height: 32px;
+    cursor: pointer; font-size: 16px; color: var(--text-mid); display: flex; align-items: center; justify-content: center;
+  }
+  .selected-date-display {
+    background: var(--navy); color: white; border-radius: 12px; padding: 14px; margin-bottom: 16px; text-align: center;
+  }
+  .sel-day { font-size: 32px; font-weight: 700; font-family: 'Playfair Display', serif; line-height: 1; }
+  .sel-month { font-size: 13px; color: rgba(255,255,255,0.6); margin-top: 2px; }
+  .sel-weekday { font-size: 11px; color: var(--saffron-light); font-weight: 600; margin-top: 4px; letter-spacing: 1px; }
+  .form-group { margin-bottom: 14px; }
+  .form-label { display: block; font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--text-light); margin-bottom: 6px; }
+  .form-input, .form-textarea {
+    width: 100%; border: 1.5px solid var(--cream-dark); border-radius: 8px;
+    padding: 10px 12px; font-family: 'DM Sans', sans-serif; font-size: 14px;
+    color: var(--text-dark); background: var(--cream); transition: border-color 0.15s;
+  }
+  .form-input:focus, .form-textarea:focus { outline: none; border-color: var(--teal); background: white; }
+  .form-textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+  .tag-options { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag-option {
+    padding: 5px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+    cursor: pointer; border: 1.5px solid transparent; transition: all 0.15s;
+    color: var(--text-mid); background: var(--cream-dark);
+  }
+  .tag-option.selected { background: var(--navy); color: white; border-color: var(--navy); }
+  .save-btn {
+    width: 100%; background: var(--teal); color: white; border: none; border-radius: 10px;
+    padding: 14px; font-family: 'DM Sans', sans-serif; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s; margin-top: 4px;
+  }
+  .save-btn:hover { background: var(--navy); }
+  .save-btn:active { transform: scale(0.98); }
+  .clear-btn {
+    width: 100%; background: none; color: var(--deep-red); border: 1.5px solid rgba(192,57,43,0.3);
+    border-radius: 10px; padding: 9px; font-family: 'DM Sans', sans-serif; font-size: 12px;
+    cursor: pointer; margin-top: 8px; transition: all 0.15s;
+  }
+  .clear-btn:hover { background: rgba(192,57,43,0.06); }
+
+  /* LEGEND */
+  .legend { margin-top: 20px; padding: 16px; background: white; border-radius: 12px; box-shadow: var(--shadow); }
+  .legend-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-light); margin-bottom: 10px; }
+  .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; font-size: 12px; color: var(--text-mid); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  /* EXPORT */
+  .export-btn {
+    width: 100%; background: none; border: 1.5px solid var(--cream-dark); border-radius: 8px;
+    padding: 10px; font-family: 'DM Sans', sans-serif; font-size: 12px; cursor: pointer;
+    color: var(--text-mid); transition: all 0.15s; margin-top: 12px;
+  }
+  .export-btn:hover { border-color: var(--navy); color: var(--navy); }
+
+  /* TOAST */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: var(--navy); color: white; padding: 12px 24px; border-radius: 30px;
+    font-size: 13px; font-weight: 500; box-shadow: var(--shadow-lg); transition: transform 0.3s ease; z-index: 9999;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* DB STATUS */
+  .db-status {
+    position: fixed; top: 10px; right: 12px; background: rgba(13,115,119,0.9); color: white;
+    font-size: 10px; padding: 4px 10px; border-radius: 20px; z-index: 500;
+    display: flex; align-items: center; gap: 5px; font-family: 'DM Mono', monospace;
+    opacity: 0; transition: opacity 0.3s;
+  }
+  .db-status.show { opacity: 1; }
+  .db-dot { width: 6px; height: 6px; border-radius: 50%; background: #4fffb0; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+</style>
+</head>
+<body>
+
+<!-- LOADER -->
+<div id="loader">
+  <div class="loader-spinner"></div>
+  <div class="loader-text">Connecting to family planner…</div>
+</div>
+
+<!-- DB STATUS INDICATOR -->
+<div class="db-status" id="dbStatus">
+  <div class="db-dot"></div>
+  <span>Live</span>
+</div>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-eyebrow">Malaysia Airlines · Booking 5PH5UV</div>
+  <h1>India Trip 2026<br><span style="font-style:italic;font-weight:400;font-size:18px;color:rgba(255,255,255,0.65)">Arakkal Family Planner</span></h1>
+  <div class="hero-meta">
+    <div class="hero-pill">✈ <strong>23 Apr</strong> Depart MEL</div>
+    <div class="hero-pill">🛬 <strong>23 Apr</strong> Arrive COK</div>
+    <div class="hero-pill">🛫 <strong>27 May</strong> Depart BOM</div>
+    <div class="hero-pill">👨‍👩‍👧‍👦 <strong>4</strong> pax</div>
+  </div>
+</div>
+
+<!-- TIMELINE -->
+<div class="timeline-section">
+  <div class="section-label">Flight Journey</div>
+  <div class="timeline">
+    <div class="tl-node">
+      <div class="tl-dot depart"></div>
+      <div class="tl-info">
+        <div class="tl-code">MEL</div>
+        <div class="tl-city">Melbourne</div>
+        <div class="tl-time">07:45</div>
+        <div class="tl-date">Thu 23 Apr 2026</div>
+        <div class="tl-flight">MH146 ↑</div>
+        <div class="tl-tz">AEST</div>
+      </div>
+    </div>
+    <div class="tl-connector out" style="flex:1;margin-top:5px;position:relative;">
+      <span class="tl-conn-label">8h 45m via KUL</span>
+    </div>
+    <div class="tl-node">
+      <div class="tl-dot arrive"></div>
+      <div class="tl-info">
+        <div class="tl-code">COK</div>
+        <div class="tl-city">Kochi</div>
+        <div class="tl-time">23:20</div>
+        <div class="tl-date">Thu 23 Apr 2026</div>
+        <div class="tl-flight">MH108 ↓</div>
+        <div class="tl-tz">IST</div>
+      </div>
+    </div>
+    <div class="tl-connector stay" style="flex:2;margin-top:5px;position:relative;display:flex;align-items:center;justify-content:center;">
+      <span class="tl-conn-label" style="color:var(--gold)">🇮🇳 34 nights</span>
+    </div>
+    <div class="tl-node">
+      <div class="tl-dot depart"></div>
+      <div class="tl-info">
+        <div class="tl-code">BOM</div>
+        <div class="tl-city">Mumbai</div>
+        <div class="tl-time">23:25</div>
+        <div class="tl-date">Wed 27 May 2026</div>
+        <div class="tl-flight">MH195 ↑</div>
+        <div class="tl-tz">IST</div>
+      </div>
+    </div>
+    <div class="tl-connector in" style="flex:1;margin-top:5px;position:relative;">
+      <span class="tl-conn-label">13h 25m via KUL</span>
+    </div>
+    <div class="tl-node">
+      <div class="tl-dot arrive"></div>
+      <div class="tl-info">
+        <div class="tl-code">MEL</div>
+        <div class="tl-city">Melbourne</div>
+        <div class="tl-time">19:15</div>
+        <div class="tl-date">Thu 28 May 2026</div>
+        <div class="tl-flight">MH129 ↓</div>
+        <div class="tl-tz">AEST</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- STAY STRIP -->
+<div class="stay-strip">
+  <div class="stay-stat"><div class="stay-stat-val">23 Apr</div><div class="stay-stat-lbl">Arrive COK 23:20</div></div>
+  <div class="stay-divider"></div>
+  <div class="stay-stat"><div class="stay-stat-val">34</div><div class="stay-stat-lbl">Nights in India</div></div>
+  <div class="stay-divider"></div>
+  <div class="stay-stat"><div class="stay-stat-val">27 May</div><div class="stay-stat-lbl">Depart BOM 23:25</div></div>
+  <div class="stay-divider"></div>
+  <div class="stay-stat"><div class="stay-stat-val">25K</div><div class="stay-stat-lbl">Checked / pax</div></div>
+  <div class="stay-divider"></div>
+  <div class="stay-stat"><div class="stay-stat-val">7K</div><div class="stay-stat-lbl">Cabin / pax</div></div>
+</div>
+
+<!-- CALENDAR -->
+<div class="cal-area">
+  <div class="cal-header">
+    <div class="cal-month-nav">
+      <button class="nav-btn" id="prevBtn">‹</button>
+      <div class="cal-month-title" id="monthTitle">April 2026</div>
+      <button class="nav-btn" id="nextBtn">›</button>
+    </div>
+    <div class="view-toggle">
+      <button class="view-btn active" id="calViewBtn">📅</button>
+      <button class="view-btn" id="listViewBtn">☰ List</button>
+    </div>
+  </div>
+
+  <div id="calView">
+    <div class="cal-weekdays">
+      <div class="cal-wd">Sun</div><div class="cal-wd">Mon</div><div class="cal-wd">Tue</div>
+      <div class="cal-wd">Wed</div><div class="cal-wd">Thu</div><div class="cal-wd">Fri</div><div class="cal-wd">Sat</div>
+    </div>
+    <div class="cal-grid" id="calGrid"></div>
+  </div>
+
+  <div id="listView">
+    <div id="listContent"></div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-title">Legend</div>
+    <div class="legend-row"><div class="legend-dot" style="background:var(--saffron)"></div> Flight day</div>
+    <div class="legend-row"><div class="legend-dot" style="background:var(--teal)"></div> In-stay date (tap to add plans)</div>
+    <div class="legend-row"><div class="legend-dot" style="background:var(--gold)"></div> Has notes / plans saved</div>
+  </div>
+
+  <button class="export-btn" id="exportBtn">📋 Copy Full Itinerary to Clipboard</button>
+</div>
+
+<!-- OVERLAY -->
+<div id="overlay"></div>
+
+<!-- SLIDE PANEL -->
+<div id="sidePanel">
+  <div class="panel-handle"></div>
+  <div class="panel-top">
+    <div class="panel-title">Day Planner</div>
+    <button class="close-btn" id="closePanel">✕</button>
+  </div>
+  <div class="selected-date-display">
+    <div class="sel-day" id="selDay">—</div>
+    <div class="sel-month" id="selMonth">—</div>
+    <div class="sel-weekday" id="selWeekday">—</div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">📍 Location / City</label>
+    <input type="text" class="form-input" id="locInput" placeholder="e.g. Pune, Kochi, Goa…">
+  </div>
+  <div class="form-group">
+    <label class="form-label">🏷 Category</label>
+    <div class="tag-options">
+      <div class="tag-option" data-tag="Travel">✈ Travel</div>
+      <div class="tag-option" data-tag="Family">👨‍👩‍👧 Family</div>
+      <div class="tag-option" data-tag="Sightseeing">🏛 Sightseeing</div>
+      <div class="tag-option" data-tag="Rest">🛌 Rest</div>
+      <div class="tag-option" data-tag="Food">🍽 Food</div>
+      <div class="tag-option" data-tag="Ceremony">🪔 Ceremony</div>
+      <div class="tag-option" data-tag="Beach">🏖 Beach</div>
+      <div class="tag-option" data-tag="Admin">📋 Admin</div>
+    </div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">📝 Notes / Plans</label>
+    <textarea class="form-textarea" id="noteInput" placeholder="What's planned for this day?"></textarea>
+  </div>
+  <button class="save-btn" id="saveBtn">Save Plans</button>
+  <button class="clear-btn" id="clearBtn">Clear This Day</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // Show DB status badge after load
+  setTimeout(() => {
+    const s = document.getElementById('dbStatus');
+    s.classList.add('show');
+    setTimeout(() => s.classList.remove('show'), 3000);
+  }, 2500);
+</script>
+
+</body>
+</html>
