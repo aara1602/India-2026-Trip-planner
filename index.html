@@ -32,6 +32,8 @@
   let selectedTag = null;
   let isCalView = true;
   let dbReady = false;
+  const PIN = '1984';
+  let isAuthenticated = localStorage.getItem('tripAuth') === 'true';
 
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -596,6 +598,59 @@
   }
   .toast.show { transform: translateX(-50%) translateY(0); }
 
+  /* PIN MODAL */
+  #pinModal {
+    position: fixed; inset: 0; background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%);
+    display: flex; align-items: center; justify-content: center; z-index: 10000;
+  }
+  .pin-container {
+    background: white; border-radius: 24px; padding: 32px 24px;
+    text-align: center; max-width: 320px; width: 90%;
+    box-shadow: var(--shadow-lg);
+  }
+  #pinModal.shake { animation: shake 0.5s; }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-10px); }
+    40% { transform: translateX(10px); }
+    60% { transform: translateX(-10px); }
+    80% { transform: translateX(10px); }
+  }
+  .pin-icon { font-size: 48px; margin-bottom: 16px; }
+  .pin-title {
+    font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 600;
+    color: var(--navy); margin-bottom: 8px;
+  }
+  .pin-subtitle {
+    font-size: 13px; color: var(--text-light); margin-bottom: 24px;
+  }
+  .pin-dots { display: flex; justify-content: center; gap: 12px; margin-bottom: 32px; }
+  .pin-dot {
+    width: 14px; height: 14px; border: 2px solid var(--cream-dark);
+    border-radius: 50%; transition: all 0.2s;
+  }
+  .pin-dot.filled {
+    background: var(--navy); border-color: var(--navy);
+    transform: scale(1.1);
+  }
+  .pin-keypad {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    margin-bottom: 16px;
+  }
+  .pin-key {
+    background: var(--cream); border: none; border-radius: 12px;
+    padding: 16px; font-size: 24px; font-weight: 600;
+    color: var(--navy); cursor: pointer; transition: all 0.15s;
+  }
+  .pin-key:hover { background: var(--cream-dark); transform: translateY(-2px); }
+  .pin-key:active { transform: scale(0.95); }
+  .pin-key.clear { font-size: 18px; color: var(--deep-red); }
+  .pin-key.backspace { font-size: 18px; }
+  .pin-error {
+    height: 18px; font-size: 12px; color: var(--deep-red);
+    font-weight: 500; margin-top: 0;
+  }
+
   /* DB STATUS */
   .db-status {
     position: fixed; top: 10px; right: 12px; background: rgba(13,115,119,0.9); color: white;
@@ -615,6 +670,39 @@
   <div class="loader-spinner"></div>
   <div class="loader-text">Connecting to family planner…</div>
 </div>
+
+<!-- PIN MODAL -->
+<div id="pinModal">
+  <div class="pin-container">
+    <div class="pin-icon">🔐</div>
+    <h2 class="pin-title">Family Planner</h2>
+    <p class="pin-subtitle">Enter 4-digit PIN to access</p>
+    <div class="pin-dots" id="pinDots">
+      <div class="pin-dot"></div>
+      <div class="pin-dot"></div>
+      <div class="pin-dot"></div>
+      <div class="pin-dot"></div>
+    </div>
+    <div class="pin-keypad" id="pinKeypad">
+      <button class="pin-key" data-key="1">1</button>
+      <button class="pin-key" data-key="2">2</button>
+      <button class="pin-key" data-key="3">3</button>
+      <button class="pin-key" data-key="4">4</button>
+      <button class="pin-key" data-key="5">5</button>
+      <button class="pin-key" data-key="6">6</button>
+      <button class="pin-key" data-key="7">7</button>
+      <button class="pin-key" data-key="8">8</button>
+      <button class="pin-key" data-key="9">9</button>
+      <button class="pin-key clear" data-key="clear">✕</button>
+      <button class="pin-key" data-key="0">0</button>
+      <button class="pin-key backspace" data-key="backspace">⌫</button>
+    </div>
+    <p class="pin-error" id="pinError"></p>
+  </div>
+</div>
+
+<!-- MAIN CONTENT (hidden until auth) -->
+<div id="mainContent" style="display:none;">
 
 <!-- DB STATUS INDICATOR -->
 <div class="db-status" id="dbStatus">
@@ -785,7 +873,68 @@
 
 <div class="toast" id="toast"></div>
 
+</div>
+
+<!-- END MAIN CONTENT -->
+
 <script>
+  // ── PIN AUTHENTICATION ──
+  let pinInput = '';
+
+  function showPinError(msg) {
+    const err = document.getElementById('pinError');
+    err.textContent = msg;
+    setTimeout(() => err.textContent = '', 2000);
+  }
+
+  function updatePinDots() {
+    const dots = document.querySelectorAll('.pin-dot');
+    dots.forEach((dot, i) => {
+      dot.classList.toggle('filled', i < pinInput.length);
+    });
+  }
+
+  function validatePin() {
+    if (pinInput === PIN) {
+      isAuthenticated = true;
+      localStorage.setItem('tripAuth', 'true');
+      document.getElementById('pinModal').style.display = 'none';
+      document.getElementById('mainContent').style.display = 'block';
+      pinInput = '';
+    } else {
+      showPinError('Incorrect PIN');
+      pinInput = '';
+      updatePinDots();
+      document.getElementById('pinModal').classList.add('shake');
+      setTimeout(() => document.getElementById('pinModal').classList.remove('shake'), 500);
+    }
+  }
+
+  document.getElementById('pinKeypad').addEventListener('click', (e) => {
+    const key = e.target.dataset.key;
+    if (!key) return;
+
+    if (key === 'clear') {
+      pinInput = '';
+      updatePinDots();
+    } else if (key === 'backspace') {
+      pinInput = pinInput.slice(0, -1);
+      updatePinDots();
+    } else if (pinInput.length < 4) {
+      pinInput += key;
+      updatePinDots();
+      if (pinInput.length === 4) {
+        setTimeout(validatePin, 100);
+      }
+    }
+  });
+
+  // Check auth on load
+  if (isAuthenticated) {
+    document.getElementById('pinModal').style.display = 'none';
+    document.getElementById('mainContent').style.display = 'block';
+  }
+
   // Show DB status badge after load
   setTimeout(() => {
     const s = document.getElementById('dbStatus');
