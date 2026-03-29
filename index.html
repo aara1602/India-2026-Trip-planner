@@ -650,6 +650,14 @@
     height: 18px; font-size: 12px; color: var(--deep-red);
     font-weight: 500; margin-top: 0;
   }
+  .pin-submit {
+    width: 100%; background: var(--teal); color: white; border: none;
+    border-radius: 12px; padding: 14px; font-size: 16px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s; margin-top: 8px;
+  }
+  .pin-submit:hover { background: var(--navy); transform: translateY(-1px); }
+  .pin-submit:active { transform: scale(0.98); }
+  .pin-submit:disabled { background: var(--cream-dark); color: var(--text-light); cursor: default; transform: none; }
 
   /* DB STATUS */
   .db-status {
@@ -697,6 +705,7 @@
       <button class="pin-key" data-key="0">0</button>
       <button class="pin-key backspace" data-key="backspace">⌫</button>
     </div>
+    <button class="pin-submit" id="pinSubmit" disabled>Unlock</button>
     <p class="pin-error" id="pinError"></p>
   </div>
 </div>
@@ -892,6 +901,9 @@
     dots.forEach((dot, i) => {
       dot.classList.toggle('filled', i < pinInput.length);
     });
+    // Enable submit button when 4 digits entered
+    const submitBtn = document.getElementById('pinSubmit');
+    submitBtn.disabled = pinInput.length !== 4;
   }
 
   function validatePin() {
@@ -923,9 +935,13 @@
     } else if (pinInput.length < 4) {
       pinInput += key;
       updatePinDots();
-      if (pinInput.length === 4) {
-        setTimeout(validatePin, 100);
-      }
+    }
+  });
+
+  // Submit button click handler
+  document.getElementById('pinSubmit').addEventListener('click', () => {
+    if (pinInput.length === 4) {
+      validatePin();
     }
   });
 
