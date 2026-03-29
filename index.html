@@ -903,7 +903,9 @@
     });
     // Enable submit button when 4 digits entered
     const submitBtn = document.getElementById('pinSubmit');
-    submitBtn.disabled = pinInput.length !== 4;
+    const isEnabled = pinInput.length === 4;
+    submitBtn.disabled = !isEnabled;
+    console.log('PIN digits:', pinInput.length, 'Button enabled:', isEnabled, 'Button disabled attr:', submitBtn.disabled);
   }
 
   function validatePin() {
@@ -938,12 +940,22 @@
     }
   });
 
-  // Submit button click handler
-  document.getElementById('pinSubmit').addEventListener('click', () => {
+  // Submit button click handler - multiple approaches to ensure it works
+  const submitBtn = document.getElementById('pinSubmit');
+  submitBtn.addEventListener('click', (e) => {
+    console.log('Unlock button clicked. PIN length:', pinInput.length);
     if (pinInput.length === 4) {
       validatePin();
     }
   });
+
+  // Also add inline onclick handler as fallback
+  submitBtn.onclick = () => {
+    console.log('Unlock button clicked (inline). PIN length:', pinInput.length);
+    if (pinInput.length === 4) {
+      validatePin();
+    }
+  };
 
   // Check auth on load
   if (isAuthenticated) {
