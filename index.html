@@ -654,10 +654,11 @@
     width: 100%; background: var(--teal); color: white; border: none;
     border-radius: 12px; padding: 14px; font-size: 16px; font-weight: 600;
     cursor: pointer; transition: all 0.15s; margin-top: 8px;
+    pointer-events: auto;
   }
-  .pin-submit:hover { background: var(--navy); transform: translateY(-1px); }
-  .pin-submit:active { transform: scale(0.98); }
-  .pin-submit:disabled { background: var(--cream-dark); color: var(--text-light); cursor: default; transform: none; }
+  .pin-submit:hover:not(:disabled) { background: var(--navy); transform: translateY(-1px); }
+  .pin-submit:active:not(:disabled) { transform: scale(0.98); }
+  .pin-submit:disabled { background: var(--cream-dark); color: var(--text-light); cursor: default; transform: none; pointer-events: none; }
 
   /* DB STATUS */
   .db-status {
