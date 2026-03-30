@@ -308,6 +308,91 @@
     t.classList.add('show');
     setTimeout(() => t.classList.remove('show'), 2500);
   }
+
+  // ── PIN AUTHENTICATION ──
+  let pinInput = '';
+
+  function showPinError(msg) {
+    const err = document.getElementById('pinError');
+    err.textContent = msg;
+    setTimeout(() => err.textContent = '', 2000);
+  }
+
+  function updatePinDots() {
+    const dots = document.querySelectorAll('.pin-dot');
+    dots.forEach((dot, i) => {
+      dot.classList.toggle('filled', i < pinInput.length);
+    });
+    // Enable submit button when 4 digits entered
+    const submitBtn = document.getElementById('pinSubmit');
+    const isEnabled = pinInput.length === 4;
+    submitBtn.disabled = !isEnabled;
+    console.log('PIN digits:', pinInput.length, 'Button enabled:', isEnabled, 'Button disabled attr:', submitBtn.disabled);
+  }
+
+  function validatePin() {
+    if (pinInput === PIN) {
+      isAuthenticated = true;
+      localStorage.setItem('tripAuth', 'true');
+      document.getElementById('pinModal').style.display = 'none';
+      document.getElementById('mainContent').style.display = 'block';
+      pinInput = '';
+    } else {
+      showPinError('Incorrect PIN');
+      pinInput = '';
+      updatePinDots();
+      document.getElementById('pinModal').classList.add('shake');
+      setTimeout(() => document.getElementById('pinModal').classList.remove('shake'), 500);
+    }
+  }
+
+  document.getElementById('pinKeypad').addEventListener('click', (e) => {
+    const key = e.target.dataset.key;
+    if (!key) return;
+
+    if (key === 'clear') {
+      pinInput = '';
+      updatePinDots();
+    } else if (key === 'backspace') {
+      pinInput = pinInput.slice(0, -1);
+      updatePinDots();
+    } else if (pinInput.length < 4) {
+      pinInput += key;
+      updatePinDots();
+    }
+  });
+
+  // Submit button click handler - multiple approaches to ensure it works
+  const submitBtn = document.getElementById('pinSubmit');
+  submitBtn.addEventListener('click', (e) => {
+    console.log('Unlock button clicked. PIN length:', pinInput.length);
+    if (pinInput.length === 4) {
+      validatePin();
+    }
+  });
+
+  // Also add inline onclick handler as fallback
+  submitBtn.onclick = () => {
+    console.log('Unlock button clicked (inline). PIN length:', pinInput.length);
+    if (pinInput.length === 4) {
+      validatePin();
+    }
+  };
+
+  // Check auth on load
+  if (isAuthenticated) {
+    document.getElementById('pinModal').style.display = 'none';
+    document.getElementById('mainContent').style.display = 'block';
+  }
+
+  // Show DB status badge after load
+  setTimeout(() => {
+    const s = document.getElementById('dbStatus');
+    if (s) {
+      s.classList.add('show');
+      setTimeout(() => s.classList.remove('show'), 3000);
+    }
+  }, 2500);
 </script>
 
 <style>
@@ -886,91 +971,6 @@
 </div>
 
 <!-- END MAIN CONTENT -->
-
-<script>
-  // ── PIN AUTHENTICATION ──
-  let pinInput = '';
-
-  function showPinError(msg) {
-    const err = document.getElementById('pinError');
-    err.textContent = msg;
-    setTimeout(() => err.textContent = '', 2000);
-  }
-
-  function updatePinDots() {
-    const dots = document.querySelectorAll('.pin-dot');
-    dots.forEach((dot, i) => {
-      dot.classList.toggle('filled', i < pinInput.length);
-    });
-    // Enable submit button when 4 digits entered
-    const submitBtn = document.getElementById('pinSubmit');
-    const isEnabled = pinInput.length === 4;
-    submitBtn.disabled = !isEnabled;
-    console.log('PIN digits:', pinInput.length, 'Button enabled:', isEnabled, 'Button disabled attr:', submitBtn.disabled);
-  }
-
-  function validatePin() {
-    if (pinInput === PIN) {
-      isAuthenticated = true;
-      localStorage.setItem('tripAuth', 'true');
-      document.getElementById('pinModal').style.display = 'none';
-      document.getElementById('mainContent').style.display = 'block';
-      pinInput = '';
-    } else {
-      showPinError('Incorrect PIN');
-      pinInput = '';
-      updatePinDots();
-      document.getElementById('pinModal').classList.add('shake');
-      setTimeout(() => document.getElementById('pinModal').classList.remove('shake'), 500);
-    }
-  }
-
-  document.getElementById('pinKeypad').addEventListener('click', (e) => {
-    const key = e.target.dataset.key;
-    if (!key) return;
-
-    if (key === 'clear') {
-      pinInput = '';
-      updatePinDots();
-    } else if (key === 'backspace') {
-      pinInput = pinInput.slice(0, -1);
-      updatePinDots();
-    } else if (pinInput.length < 4) {
-      pinInput += key;
-      updatePinDots();
-    }
-  });
-
-  // Submit button click handler - multiple approaches to ensure it works
-  const submitBtn = document.getElementById('pinSubmit');
-  submitBtn.addEventListener('click', (e) => {
-    console.log('Unlock button clicked. PIN length:', pinInput.length);
-    if (pinInput.length === 4) {
-      validatePin();
-    }
-  });
-
-  // Also add inline onclick handler as fallback
-  submitBtn.onclick = () => {
-    console.log('Unlock button clicked (inline). PIN length:', pinInput.length);
-    if (pinInput.length === 4) {
-      validatePin();
-    }
-  };
-
-  // Check auth on load
-  if (isAuthenticated) {
-    document.getElementById('pinModal').style.display = 'none';
-    document.getElementById('mainContent').style.display = 'block';
-  }
-
-  // Show DB status badge after load
-  setTimeout(() => {
-    const s = document.getElementById('dbStatus');
-    s.classList.add('show');
-    setTimeout(() => s.classList.remove('show'), 3000);
-  }, 2500);
-</script>
 
 </body>
 </html>
